@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <time.h>
 
 #define NAME_LENGTH 50
 #define POEM_LENGTH 200
@@ -11,6 +15,15 @@ typedef struct {
     char poem[POEM_LENGTH];
     int eggs;
 } Bunny;
+
+volatile sig_atomic_t bunnyArrived = 0;
+
+void bunnySignalHandler(int sig) {
+    if (sig == SIGUSR1) {
+        bunnyArrived = 1;
+        printf("[Chief Bunny] A bunny boy has arrived to water!\n");
+    }
+}
 
 int loadBunnies(const char *filename, Bunny bunnies[], int maxBunnies) {
     FILE *fp = fopen(filename, "r");
@@ -176,6 +189,75 @@ void declareKing(const char *filename) {
            bunnies[kingIndex].name, bunnies[kingIndex].eggs);
 }
 
+void startWateringCompetition(const char *filename) {
+    Bunny bunnies[MAX_BUNNIES];
+    int count = loadBunnies(filename, bunnies, MAX_BUNNIES);
+    if (count == 0) {
+        printf("No bunnies registered.\n");
+        return;
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        perror("Pipe creation failed");
+        return;
+    }
+
+    signal(SIGUSR1, bunnySignalHandler);
+    printf("\n[Chief Bunny] Starting watering competition...\n");
+
+    for (int i = 0; i < count; i++) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("Fork failed");
+            return;
+        } else if (pid == 0) {
+            // Child
+            close(pipefd[0]);
+            kill(getppid(), SIGUSR1); // notify Chief Bunny
+
+            srand(time(NULL) ^ (getpid()<<16));
+            sleep(1); // simulate arrival delay
+
+            printf("\n[Bunny %s arrives to water!]\n", bunnies[i].name);
+            printf("%s recites: \"%s\"\n", bunnies[i].name, bunnies[i].poem);
+
+            int earnedEggs = rand() % 20 + 1;
+            printf("%s received %d red eggs!\n", bunnies[i].name, earnedEggs);
+
+            write(pipefd[1], &earnedEggs, sizeof(int));
+            close(pipefd[1]);
+            exit(0);
+        } else {
+            // Parent
+            while (!bunnyArrived) {
+                // Wait until child sends SIGUSR1
+            }
+            bunnyArrived = 0;
+        }
+    }
+
+    close(pipefd[1]); // close write end
+    for (int i = 0; i < count; i++) {
+        int earnedEggs;
+        read(pipefd[0], &earnedEggs, sizeof(int));
+        bunnies[i].eggs += earnedEggs;
+        wait(NULL);
+    }
+    close(pipefd[0]);
+
+    saveBunnies(filename, bunnies, count);
+
+    // Declare King
+    int kingIndex = 0;
+    for (int i = 1; i < count; i++) {
+        if (bunnies[i].eggs > bunnies[kingIndex].eggs)
+            kingIndex = i;
+    }
+    printf("\n🎉 Easter Bunny King: %s with %d red eggs!\n",
+           bunnies[kingIndex].name, bunnies[kingIndex].eggs);
+}
+
 int main(void) {
     const char *filename = "bunny_data.txt";
     int choice;
@@ -187,8 +269,9 @@ int main(void) {
         printf("4. Delete Bunny\n");
         printf("5. Declare Easter Bunny King\n");
         printf("6. Exit\n");
-        printf("Enter your choice (1-6): ");
-        
+        printf("7. Start Watering Competition\n");
+        printf("Enter your choice (1-7): ");
+
         if (scanf("%d", &choice) != 1) {
             fprintf(stderr, "Invalid input. Please enter a number.\n");
             while (getchar() != '\n');
@@ -214,8 +297,11 @@ int main(void) {
             case 6:
                 printf("Exiting...\n");
                 break;
+            case 7:
+                startWateringCompetition(filename);
+                break;
             default:
-                printf("Invalid choice. Please select 1-6.\n");
+                printf("Invalid choice. Please select 1-7.\n");
         }
     } while (choice != 6);
     return 0;
