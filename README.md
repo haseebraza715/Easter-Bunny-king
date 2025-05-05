@@ -36,4 +36,10 @@ Bunny LongEar|Red eggs, white bunny, a kiss for watering!|0
 
 * Linux (POSIX)
 * GCC (supports fork, pipe, signal)
+* ## 📄 Developer Documentation
+
+You can view the full developer documentation for the **Easter Bunny King Competition** here:
+
+👉 [Download PDF Documentation](./Easter_Bunny_King_Competition.pdf)
+
 
